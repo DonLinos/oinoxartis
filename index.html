@@ -3454,9 +3454,27 @@ function viewAdmin(tab = 'overview') {
   if (!T.some(t => t[0] === tab)) tab = 'overview';
   setCrumbs([['Αρχική', '#/home'], ['Admin', '#/admin'], [T.find(t => t[0] === tab)[1]]]);
   const badge = { requests: db.users.filter(u => !u.active && !u.rejected).length, approvals: db.submissions.filter(s => s.status === 'pending').length };
-  $('#app').innerHTML = `<h1 style="margin:6px 0 8px">Διαχείριση</h1><div class="tabs">${T.map(([k, l]) => `<a href="#/admin/${k}" class="${k === tab ? 'on' : ''}">${l}${badge[k] ? `<span class="n">${badge[k]}</span>` : ''}</a>`).join('')}</div><div id="adm"></div>`;
+  $('#app').innerHTML = `<div class="row" style="margin:6px 0 8px;align-items:center;justify-content:space-between;gap:10px"><h1 style="margin:0">Διαχείριση</h1><button class="btn sm" id="admRefresh" title="Φέρνει τα νεότερα στοιχεία από τη βάση">↻ Ανανέωση</button></div><div class="tabs">${T.map(([k, l]) => `<a href="#/admin/${k}" class="${k === tab ? 'on' : ''}">${l}${badge[k] ? `<span class="n">${badge[k]}</span>` : ''}</a>`).join('')}</div><div id="adm"></div>`;
   ({ overview: admOverview, users: admUsers, requests: admRequests, approvals: admApprovals, data: admData, bases: admBases, quiz: admQuiz, oeno: admOeno, settings: admSettings })[tab]($('#adm'));
+  $('#admRefresh').onclick = () => adminRefresh(true);
 }
+/* ---------- Admin: ανανέωση στοιχείων (κουμπί + αυτόματα κάθε 2 λεπτά / όταν ξαναγυρνάς στη σελίδα) ---------- */
+let ADM_REFRESHING = false;
+async function adminRefresh(manual) {
+  if (ADM_REFRESHING || myProfile()?.role !== 'admin' || !/^#\/admin/.test(location.hash)) return;
+  // δεν ανανεώνουμε μόνοι μας όσο γράφεις κάτι ή είναι ανοιχτό παράθυρο, για να μη χαθεί
+  if (!manual && (document.querySelector('.modal') || (document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)))) return;
+  ADM_REFRESHING = true; const b = $('#admRefresh'); if (b) { b.disabled = true; b.textContent = '↻ …'; }
+  const before = db.submissions.filter(s => s.status === 'pending').length, beforeU = db.users.length;
+  try {
+    await loadData(); render(); renderChrome();
+    const nP = db.submissions.filter(s => s.status === 'pending').length - before, nU = db.users.length - beforeU;
+    if (manual || nP > 0 || nU > 0) toast(nP > 0 ? `Νέες προτάσεις κρασιών: ${nP}` : nU > 0 ? `Νέοι χρήστες: ${nU}` : 'Ενημερώθηκε');
+  } catch (e) { console.error(e); if (manual) toast('Δεν ήταν δυνατή η ανανέωση — δοκίμασε ξανά'); }
+  finally { ADM_REFRESHING = false; const b2 = $('#admRefresh'); if (b2) { b2.disabled = false; b2.textContent = '↻ Ανανέωση'; } }
+}
+setInterval(() => { if (!document.hidden) adminRefresh(false); }, 120000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) adminRefresh(false); });
 function admOverview(el) {
   const nReq = db.users.filter(u => !u.active && !u.rejected).length, nSub = db.submissions.filter(s => s.status === 'pending').length;
   const noAdm = db.wines.filter(w => w.status === 'approved' && !w.adminTasting);
